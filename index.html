@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Copic Scanner</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f7f6f3;
+    --card: #ffffff;
+    --text: #1c1b1a;
+    --muted: #6b6862;
+    --border: #e4e1da;
+    --accent: #b5651d;
+    --accent-text: #ffffff;
+    --good: #2e7d4f;
+    --warn: #b5651d;
+    --bad: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #171614;
+      --card: #221f1c;
+      --text: #f2efe9;
+      --muted: #a6a19a;
+      --border: #38342e;
+      --accent: #d98a3d;
+      --accent-text: #1c1b1a;
+      --good: #6fcf97;
+      --warn: #d98a3d;
+      --bad: #ef5350;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding-bottom: 2rem;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.9rem 1rem;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 10;
+  }
+  header h1 { font-size: 1.15rem; margin: 0; }
+  header button.icon {
+    background: none;
+    border: none;
+    font-size: 1.3rem;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+  }
+  main { max-width: 480px; margin: 0 auto; padding: 0 1rem; }
+  .mode-toggle {
+    display: flex;
+    gap: 0.5rem;
+    margin: 1rem 0;
+  }
+  .mode-toggle button {
+    flex: 1;
+    padding: 0.6rem;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .mode-toggle button.active {
+    background: var(--accent);
+    color: var(--accent-text);
+    border-color: var(--accent);
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+  #reader { width: 100%; border-radius: 10px; overflow: hidden; }
+  .scan-controls { display: flex; gap: 0.6rem; margin-top: 0.75rem; }
+  button.primary {
+    background: var(--accent);
+    color: var(--accent-text);
+    border: none;
+    border-radius: 10px;
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    flex: 1;
+  }
+  button.secondary {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.75rem 1rem;
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .result-status {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 700;
+    margin-bottom: 0.25rem;
+  }
+  .result-status.ok { color: var(--good); }
+  .result-status.warn { color: var(--warn); }
+  .result-status.bad { color: var(--bad); }
+  .result-code { font-size: 1.3rem; font-weight: 700; }
+  .result-sub { color: var(--muted); font-size: 0.9rem; margin-top: 0.1rem; }
+  .result-qty { margin-top: 0.5rem; font-size: 0.95rem; }
+  .swatch {
+    display: inline-block;
+    width: 0.8em;
+    height: 0.8em;
+    border-radius: 50%;
+    margin-right: 0.4em;
+    vertical-align: middle;
+    border: 1px solid var(--border);
+  }
+  input[type=text], input[type=password] {
+    width: 100%;
+    padding: 0.65rem 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 1rem;
+    margin-top: 0.4rem;
+  }
+  select {
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 1rem;
+    margin-top: 0.4rem;
+  }
+  label { font-size: 0.85rem; color: var(--muted); display: block; margin-top: 0.6rem; }
+  .suggestion-list { margin-top: 0.6rem; max-height: 220px; overflow-y: auto; }
+  .suggestion {
+    padding: 0.6rem 0.5rem;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+  }
+  .suggestion:hover, .suggestion:active { background: var(--bg); }
+  .suggestion .code { font-weight: 700; }
+  .suggestion .name { color: var(--muted); font-size: 0.9rem; }
+  .hidden { display: none !important; }
+  .log-entry {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.92rem;
+  }
+  .log-entry:last-child { border-bottom: none; }
+  .log-entry .undo {
+    font-size: 0.8rem;
+    color: var(--bad);
+    background: none;
+    border: none;
+    cursor: pointer;
+  }
+  .tally {
+    display: flex;
+    justify-content: space-around;
+    text-align: center;
+  }
+  .tally div span.num { display: block; font-size: 1.4rem; font-weight: 700; }
+  .tally div span.label { font-size: 0.75rem; color: var(--muted); }
+  #settings-panel { display: none; }
+  #settings-panel.open { display: block; }
+  .conn-status { font-size: 0.85rem; margin-top: 0.5rem; }
+  .conn-status.ok { color: var(--good); }
+  .conn-status.bad { color: var(--bad); }
+  small.hint { color: var(--muted); display: block; margin-top: 0.4rem; }
+  #new-color-form { display: none; margin-top: 0.75rem; border-top: 1px solid var(--border); padding-top: 0.75rem; }
+  #new-color-form.open { display: block; }
+  .link-btn {
+    background: none; border: none; color: var(--accent); font-size: 0.9rem; cursor: pointer; padding: 0.4rem 0;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Copic Scanner</h1>
+  <button class="icon" id="settings-toggle" aria-label="Settings">⚙</button>
+</header>
+
+<main>
+
+  <section class="card" id="settings-panel">
+    <strong>Airtable connection</strong>
+    <label for="pat-input">Personal Access Token</label>
+    <input type="password" id="pat-input" placeholder="patXXXXXXXXXXXXXX.xxxx">
+    <small class="hint">Generate at airtable.com/create/tokens, scoped to this base with data.records:read/write + schema.bases:read. Stored only in this browser.</small>
+    <div class="scan-controls">
+      <button class="primary" id="save-pat">Save & Test</button>
+    </div>
+    <div id="conn-status" class="conn-status"></div>
+  </section>
+
+  <div class="mode-toggle">
+    <button id="mode-markers" class="active">Markers</button>
+    <button id="mode-refills">Refills</button>
+  </div>
+
+  <section class="card">
+    <div id="reader"></div>
+    <div class="scan-controls">
+      <button class="primary" id="start-btn">Start Scanning</button>
+      <button class="secondary hidden" id="stop-btn">Stop</button>
+    </div>
+  </section>
+
+  <section class="card hidden" id="result-card">
+    <div class="result-status" id="result-status"></div>
+    <div class="result-code" id="result-code"></div>
+    <div class="result-sub" id="result-sub"></div>
+    <div class="result-qty" id="result-qty"></div>
+
+    <div id="resolve-panel" class="hidden">
+      <label for="resolve-search">This barcode isn't linked to a color yet — find it:</label>
+      <input type="text" id="resolve-search" placeholder="Type color code or name…">
+      <div class="suggestion-list" id="suggestion-list"></div>
+      <button class="link-btn" id="show-new-color">+ This is a brand new color, not in the catalog</button>
+
+      <div id="new-color-form">
+        <label for="nc-code">Color Code</label>
+        <input type="text" id="nc-code" placeholder="e.g. YR07">
+        <label for="nc-name">Color Name</label>
+        <input type="text" id="nc-name" placeholder="e.g. Cadmium Orange">
+        <div class="scan-controls">
+          <button class="primary" id="nc-save">Add & Link Barcode</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="scan-controls">
+      <button class="primary hidden" id="scan-next-btn">Scan Next</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="tally">
+      <div><span class="num" id="tally-session">0</span><span class="label">scanned this session</span></div>
+    </div>
+  </section>
+
+  <section class="card" id="log-card" style="display:none">
+    <strong>Recent scans</strong>
+    <div id="log-list"></div>
+  </section>
+
+</main>
+
+<script>
+const CONFIG = {
+  baseId: 'appa7ylHXjLVMjyMr',
+  tables: {
+    markers: {
+      key: 'markers',
+      id: 'tblfPvPUvF9vKaK8y',
+      fields: {
+        colorCode: 'fldzAJ0Yh76t7OTj3',
+        colorName: 'fldSi34dNM3fiLfKS',
+        colorFamily: 'fld8YgR9QI1AEKz8r',
+        markerType: 'fld0mCf0tolEsJNbR',
+        quantityOwned: 'fldf4PQMOvVZ6PbHp',
+        barcode: 'fldvgeuDOAjP7QA8W',
+        needsReview: 'fldCNxrYRmWx98YDo',
+        forSaleQty: 'fldAUid8LSPAVIMMW'
+      }
+    },
+    refills: {
+      key: 'refills',
+      id: 'tblFOjnq1KHeYhynw',
+      fields: {
+        colorCode: 'fld8gfinveFbyqk7u',
+        colorName: 'fldILWfvmOBbaUj4n',
+        quantityOwned: 'fldamUBogf0PZvD2U',
+        barcode: 'fldjWQqR5BWStr4yX',
+        needsReview: 'fld1Urfjf6Bqen4XS'
+      }
+    }
+  }
+};
+
+const FAMILY_COLOR = {
+  B: '#3b6fb0', BG: '#3f9c8f', BV: '#7c5ba6', C: '#8c8c8c', E: '#c98a4b',
+  G: '#4f9e52', N: '#5a5a5a', R: '#c0392b', RV: '#c2568b', T: '#4a9b9b',
+  V: '#8464b0', W: '#b0aca3', Y: '#e0c341', YG: '#8ec34a', YR: '#e08a3c', '0': '#cfcfcf'
+};
+
+let pat = localStorage.getItem('copic_pat') || '';
+let mode = 'markers';
+let catalog = { markers: null, refills: null };
+let html5QrCode = null;
+let scanning = false;
+let busy = false;
+let sessionCount = 0;
+let log = [];
+
+const $ = (id) => document.getElementById(id);
+
+// ---------- Settings ----------
+$('pat-input').value = pat;
+$('settings-toggle').onclick = () => $('settings-panel').classList.toggle('open');
+if (!pat) $('settings-panel').classList.add('open');
+
+$('save-pat').onclick = async () => {
+  pat = $('pat-input').value.trim();
+  localStorage.setItem('copic_pat', pat);
+  const statusEl = $('conn-status');
+  statusEl.textContent = 'Testing…';
+  statusEl.className = 'conn-status';
+  try {
+    await airtableFetch(`/${CONFIG.tables.markers.id}?maxRecords=1`);
+    statusEl.textContent = '✓ Connected';
+    statusEl.className = 'conn-status ok';
+  } catch (e) {
+    statusEl.textContent = '✗ ' + e.message;
+    statusEl.className = 'conn-status bad';
+  }
+};
+
+// ---------- Mode toggle ----------
+$('mode-markers').onclick = () => setMode('markers');
+$('mode-refills').onclick = () => setMode('refills');
+function setMode(m) {
+  mode = m;
+  $('mode-markers').classList.toggle('active', m === 'markers');
+  $('mode-refills').classList.toggle('active', m === 'refills');
+  resetResultCard();
+}
+
+// ---------- Airtable REST helpers ----------
+async function airtableFetch(path, options = {}) {
+  const res = await fetch(`https://api.airtable.com/v0/${CONFIG.baseId}${path}`, {
+    ...options,
+    headers: {
+      'Authorization': `Bearer ${pat}`,
+      'Content-Type': 'application/json',
+      ...(options.headers || {})
+    }
+  });
+  if (!res.ok) {
+    let msg = res.status;
+    try { const b = await res.json(); msg = b.error?.message || JSON.stringify(b); } catch (_) {}
+    throw new Error(`${msg}`);
+  }
+  return res.json();
+}
+
+async function findByBarcode(tableKey, code) {
+  const table = CONFIG.tables[tableKey];
+  const formula = `{${table.fields.barcode}}="${code.replace(/"/g, '\\"')}"`;
+  const data = await airtableFetch(`/${table.id}?filterByFormula=${encodeURIComponent(formula)}&maxRecords=1`);
+  return data.records[0] || null;
+}
+
+async function loadCatalog(tableKey) {
+  if (catalog[tableKey]) return catalog[tableKey];
+  const table = CONFIG.tables[tableKey];
+  const f = table.fields;
+  const fieldParams = [f.colorCode, f.colorName].map(id => `fields[]=${id}`).join('&');
+  let records = [];
+  let offset;
+  do {
+    const url = `/${table.id}?pageSize=100&${fieldParams}${offset ? `&offset=${offset}` : ''}`;
+    const data = await airtableFetch(url);
+    records = records.concat(data.records);
+    offset = data.offset;
+  } while (offset);
+  catalog[tableKey] = records.map(r => ({
+    id: r.id,
+    code: r.fields[f.colorCode] || '',
+    name: r.fields[f.colorName] || ''
+  }));
+  return catalog[tableKey];
+}
+
+async function fetchRecord(tableKey, recordId, fieldIds) {
+  const table = CONFIG.tables[tableKey];
+  const params = fieldIds.map(id => `fields[]=${id}`).join('&');
+  return airtableFetch(`/${table.id}/${recordId}?${params}`);
+}
+
+async function patchRecord(tableKey, recordId, fields) {
+  const table = CONFIG.tables[tableKey];
+  return airtableFetch(`/${table.id}/${recordId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ fields })
+  });
+}
+
+async function createRecord(tableKey, fields) {
+  const table = CONFIG.tables[tableKey];
+  const data = await airtableFetch(`/${table.id}`, {
+    method: 'POST',
+    body: JSON.stringify({ records: [{ fields }] })
+  });
+  return data.records[0];
+}
+
+// ---------- Scanning ----------
+function initScanner() {
+  if (html5QrCode) return;
+  html5QrCode = new Html5Qrcode('reader', {
+    formatsToSupport: [
+      Html5QrcodeSupportedFormats.EAN_13,
+      Html5QrcodeSupportedFormats.UPC_A,
+      Html5QrcodeSupportedFormats.UPC_E,
+      Html5QrcodeSupportedFormats.EAN_8,
+      Html5QrcodeSupportedFormats.CODE_128
+    ],
+    verbose: false
+  });
+}
+
+$('start-btn').onclick = async () => {
+  initScanner();
+  try {
+    await html5QrCode.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: { width: 280, height: 150 } },
+      onScanSuccess,
+      () => {}
+    );
+    scanning = true;
+    $('start-btn').classList.add('hidden');
+    $('stop-btn').classList.remove('hidden');
+  } catch (e) {
+    alert('Camera error: ' + e);
+  }
+};
+
+$('stop-btn').onclick = async () => {
+  if (html5QrCode && scanning) {
+    await html5QrCode.stop();
+    scanning = false;
+  }
+  $('start-btn').classList.remove('hidden');
+  $('stop-btn').classList.add('hidden');
+};
+
+$('scan-next-btn').onclick = async () => {
+  resetResultCard();
+  if (html5QrCode && scanning) {
+    await html5QrCode.resume();
+  }
+};
+
+async function onScanSuccess(decodedText) {
+  if (busy) return;
+  busy = true;
+  if (html5QrCode && scanning) html5QrCode.pause(true);
+  await handleScan(decodedText.trim());
+  busy = false;
+}
+
+// ---------- Core lookup/update flow ----------
+let currentBarcode = null;
+
+async function handleScan(code) {
+  currentBarcode = code;
+  $('result-card').classList.remove('hidden');
+  $('resolve-panel').classList.add('hidden');
+  $('scan-next-btn').classList.add('hidden');
+  setStatus('warn', 'Looking up…');
+  $('result-code').textContent = code;
+  $('result-sub').textContent = '';
+  $('result-qty').textContent = '';
+
+  try {
+    const record = await findByBarcode(mode, code);
+    if (record) {
+      await handleMatch(record);
+    } else {
+      await handleUnknown(code);
+    }
+  } catch (e) {
+    setStatus('bad', 'Error');
+    $('result-sub').textContent = e.message;
+    $('scan-next-btn').classList.remove('hidden');
+  }
+}
+
+async function handleMatch(record) {
+  const table = CONFIG.tables[mode];
+  const f = table.fields;
+  const currentQty = record.fields[f.quantityOwned] || 0;
+  const newQty = currentQty + 1;
+  const updateFields = { [f.quantityOwned]: newQty };
+  if (f.needsReview) updateFields[f.needsReview] = false;
+  await patchRecord(mode, record.id, updateFields);
+
+  const code = record.fields[f.colorCode] || '';
+  const name = record.fields[f.colorName] || '';
+  const family = (code.match(/^[A-Z]+/) || [''])[0];
+
+  setStatus('ok', 'Matched');
+  $('result-code').innerHTML = swatch(family) + `${code} — ${name}`;
+  $('result-sub').textContent = mode === 'markers' ? 'Marker' : 'Refill';
+  let qtyLine = `Now own: ${newQty}`;
+  if (mode === 'markers') {
+    const forSale = Math.max(0, newQty - 2);
+    qtyLine += forSale > 0 ? ` · ${forSale} for sale` : ' · none surplus yet';
+  }
+  $('result-qty').textContent = qtyLine;
+  $('scan-next-btn').classList.remove('hidden');
+
+  pushLog({ tableKey: mode, recordId: record.id, code, name, prevQty: currentQty, newQty, fields: f });
+}
+
+async function handleUnknown(code) {
+  setStatus('warn', 'Unknown barcode');
+  $('result-sub').textContent = 'Not linked to any color yet.';
+  $('resolve-panel').classList.remove('hidden');
+  $('resolve-search').value = '';
+  $('suggestion-list').innerHTML = '';
+  $('new-color-form').classList.remove('open');
+  $('resolve-search').focus();
+  await loadCatalog(mode);
+}
+
+$('resolve-search').addEventListener('input', () => {
+  const q = $('resolve-search').value.trim().toLowerCase();
+  const list = $('suggestion-list');
+  list.innerHTML = '';
+  if (!q || !catalog[mode]) return;
+  const matches = catalog[mode]
+    .filter(c => c.code.toLowerCase().includes(q) || c.name.toLowerCase().includes(q))
+    .slice(0, 15);
+  matches.forEach(m => {
+    const div = document.createElement('div');
+    div.className = 'suggestion';
+    div.innerHTML = `<span class="code">${m.code}</span><span class="name">${m.name}</span>`;
+    div.onclick = () => linkBarcodeToRecord(m.id);
+    list.appendChild(div);
+  });
+});
+
+async function linkBarcodeToRecord(recordId) {
+  const table = CONFIG.tables[mode];
+  const f = table.fields;
+  try {
+    const full = await fetchRecord(mode, recordId, [f.colorCode, f.colorName, f.quantityOwned]);
+    const currentQty = full.fields[f.quantityOwned] || 0;
+    const newQty = currentQty + 1;
+    const updateFields = {
+      [f.barcode]: { text: currentBarcode },
+      [f.quantityOwned]: newQty
+    };
+    if (f.needsReview) updateFields[f.needsReview] = false;
+    await patchRecord(mode, recordId, updateFields);
+
+    const code = full.fields[f.colorCode] || '';
+    const name = full.fields[f.colorName] || '';
+    const family = (code.match(/^[A-Z]+/) || [''])[0];
+
+    setStatus('ok', 'Linked & counted');
+    $('result-code').innerHTML = swatch(family) + `${code} — ${name}`;
+    $('result-sub').textContent = 'Barcode saved for next time';
+    let qtyLine = `Now own: ${newQty}`;
+    if (mode === 'markers') {
+      const forSale = Math.max(0, newQty - 2);
+      qtyLine += forSale > 0 ? ` · ${forSale} for sale` : ' · none surplus yet';
+    }
+    $('result-qty').textContent = qtyLine;
+    $('resolve-panel').classList.add('hidden');
+    $('scan-next-btn').classList.remove('hidden');
+
+    pushLog({ tableKey: mode, recordId, code, name, prevQty: currentQty, newQty, fields: f });
+
+    const idx = catalog[mode].findIndex(c => c.id === recordId);
+    if (idx >= 0) catalog[mode][idx] = { ...catalog[mode][idx] };
+  } catch (e) {
+    setStatus('bad', 'Error');
+    $('result-sub').textContent = e.message;
+  }
+}
+
+$('show-new-color').onclick = () => {
+  $('new-color-form').classList.toggle('open');
+};
+
+$('nc-save').onclick = async () => {
+  const code = $('nc-code').value.trim().toUpperCase();
+  const name = $('nc-name').value.trim();
+  if (!code) { alert('Color code is required'); return; }
+  const table = CONFIG.tables[mode];
+  const f = table.fields;
+  try {
+    const fields = {
+      [f.colorCode]: code,
+      [f.colorName]: name,
+      [f.barcode]: { text: currentBarcode },
+      [f.quantityOwned]: 1
+    };
+    const record = await createRecord(mode, fields);
+    setStatus('ok', 'New color added');
+    const family = (code.match(/^[A-Z]+/) || [''])[0];
+    $('result-code').innerHTML = swatch(family) + `${code} — ${name}`;
+    $('result-sub').textContent = 'Added to catalog & counted';
+    $('result-qty').textContent = 'Now own: 1';
+    $('resolve-panel').classList.add('hidden');
+    $('scan-next-btn').classList.remove('hidden');
+    catalog[mode] = null; // force reload next time
+    pushLog({ tableKey: mode, recordId: record.id, code, name, prevQty: 0, newQty: 1, fields: f });
+  } catch (e) {
+    setStatus('bad', 'Error');
+    $('result-sub').textContent = e.message;
+  }
+};
+
+// ---------- UI helpers ----------
+function setStatus(kind, text) {
+  const el = $('result-status');
+  el.textContent = text;
+  el.className = 'result-status ' + kind;
+}
+
+function swatch(family) {
+  const c = FAMILY_COLOR[family] || '#999';
+  return `<span class="swatch" style="background:${c}"></span>`;
+}
+
+function resetResultCard() {
+  currentBarcode = null;
+  $('result-card').classList.add('hidden');
+  $('resolve-panel').classList.add('hidden');
+}
+
+function pushLog(entry) {
+  sessionCount++;
+  $('tally-session').textContent = sessionCount;
+  log.unshift(entry);
+  log = log.slice(0, 20);
+  renderLog();
+}
+
+function renderLog() {
+  const card = $('log-card');
+  const list = $('log-list');
+  if (log.length === 0) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  list.innerHTML = '';
+  log.forEach((entry, i) => {
+    const div = document.createElement('div');
+    div.className = 'log-entry';
+    div.innerHTML = `<span>${entry.code} — ${entry.name} (${entry.newQty})</span>`;
+    const undoBtn = document.createElement('button');
+    undoBtn.className = 'undo';
+    undoBtn.textContent = 'Undo';
+    undoBtn.onclick = () => undoEntry(i, entry);
+    div.appendChild(undoBtn);
+    list.appendChild(div);
+  });
+}
+
+async function undoEntry(index, entry) {
+  try {
+    await patchRecord(entry.tableKey, entry.recordId, { [entry.fields.quantityOwned]: entry.prevQty });
+    log.splice(index, 1);
+    sessionCount = Math.max(0, sessionCount - 1);
+    $('tally-session').textContent = sessionCount;
+    renderLog();
+  } catch (e) {
+    alert('Undo failed: ' + e.message);
+  }
+}
+</script>
+</body>
+</html>
