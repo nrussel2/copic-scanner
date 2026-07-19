@@ -698,6 +698,29 @@ for (const t of tokens) {
 
 $('nc-photo-btn').onclick = () => $('nc-photo-input').click();
 
+// A one-shot Tesseract.recognize() call defaults to "assume a full page of a
+// document" page segmentation, which on a real photo (skin texture, desk,
+// keyboard) tries to read the ENTIRE frame as text and produces garbage. Use
+// the worker API instead so we can set PSM to "sparse text" (built for small
+// amounts of text in an otherwise non-text image) and restrict recognition to
+// the center of the frame via Tesseract's own `rectangle` option — no canvas
+// re-encoding of the photo involved, so no risk of corrupting/rotating it.
+let ocrWorker = null;
+async function getOcrWorker() {
+  if (!ocrWorker) {
+    ocrWorker = await Tesseract.createWorker('eng');
+    await ocrWorker.setParameters({ tessedit_pageseg_mode: 11 }); // SPARSE_TEXT
+  }
+  return ocrWorker;
+}
+
+async function getImageDimensions(file) {
+  const bitmap = await createImageBitmap(file);
+  const dims = { width: bitmap.width, height: bitmap.height };
+  bitmap.close();
+  return dims;
+}
+
 $('nc-photo-input').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -713,7 +736,16 @@ $('nc-photo-input').addEventListener('change', async (e) => {
     }
     preview.src = URL.createObjectURL(file);
 
-    const { data: { text } } = await Tesseract.recognize(file, 'eng');
+    const { width, height } = await getImageDimensions(file);
+    const fraction = 0.6;
+    const rectangle = {
+      left: Math.round(width * (1 - fraction) / 2),
+      top: Math.round(height * (1 - fraction) / 2),
+      width: Math.round(width * fraction),
+      height: Math.round(height * fraction)
+    };
+    const worker = await getOcrWorker();
+    const { data: { text } } = await worker.recognize(file, { rectangle });
     const { code, name } = guessCodeAndName(text);
     if (code) $('nc-code').value = code;
     if (name) $('nc-name').value = name;
