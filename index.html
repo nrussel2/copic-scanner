@@ -698,53 +698,29 @@ for (const t of tokens) {
 
 $('nc-photo-btn').onclick = () => $('nc-photo-input').click();
 
-// Crop to the center of the photo before OCR — phone close-ups of a marker cap
-// are almost always centered, and cropping cuts out background clutter (desks,
-// keyboards, hands) that Tesseract might otherwise misread as a plausible code.
-async function cropToCenter(file, fraction = 0.6) {
-  const img = await new Promise((resolve, reject) => {
-    const im = new Image();
-    im.onload = () => resolve(im);
-    im.onerror = () => reject(new Error('Could not load photo'));
-    im.src = URL.createObjectURL(file);
-  });
-  const cw = img.naturalWidth * fraction;
-  const ch = img.naturalHeight * fraction;
-  const cx = (img.naturalWidth - cw) / 2;
-  const cy = (img.naturalHeight - ch) / 2;
-  const canvas = document.createElement('canvas');
-  canvas.width = cw;
-  canvas.height = ch;
-  canvas.getContext('2d').drawImage(img, cx, cy, cw, ch, 0, 0, cw, ch);
-  URL.revokeObjectURL(img.src);
-  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92));
-  return { blob, dataUrl: canvas.toDataURL('image/jpeg', 0.8) };
-}
-
 $('nc-photo-input').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
   const statusEl = $('nc-ocr-status');
   statusEl.textContent = 'Reading photo… (this can take a few seconds)';
   try {
-    const { blob: cropped, dataUrl } = await cropToCenter(file);
     let preview = $('nc-photo-preview');
     if (!preview) {
       preview = document.createElement('img');
       preview.id = 'nc-photo-preview';
-      preview.style.cssText = 'max-width:120px;border-radius:8px;margin-top:0.4rem;display:block';
+      preview.style.cssText = 'max-width:160px;border-radius:8px;margin-top:0.4rem;display:block';
       statusEl.after(preview);
     }
-    preview.src = dataUrl;
+    preview.src = URL.createObjectURL(file);
 
-    const { data: { text } } = await Tesseract.recognize(cropped, 'eng');
+    const { data: { text } } = await Tesseract.recognize(file, 'eng');
     const { code, name } = guessCodeAndName(text);
     if (code) $('nc-code').value = code;
     if (name) $('nc-name').value = name;
     if (code || name) {
       statusEl.textContent = `Got it — double-check before saving. (Raw read: "${text.trim().replace(/\s+/g, ' ').slice(0, 200)}")`;
     } else {
-      statusEl.textContent = `Couldn't confidently parse a code/name — raw text: "${text.trim().replace(/\s+/g, ' ').slice(0, 200)}". Fill in manually below. (See the crop preview below — if the label isn't in it, try framing the cap more centered.)`;
+      statusEl.textContent = `Couldn't confidently parse a code/name — raw text: "${text.trim().replace(/\s+/g, ' ').slice(0, 200)}". Fill in manually below. Tip: fill the frame with just the cap on a plain surface, good light, holding steady — avoid background clutter like keyboards or patterned surfaces.`;
     }
   } catch (err) {
     statusEl.textContent = 'OCR failed: ' + err.message;
