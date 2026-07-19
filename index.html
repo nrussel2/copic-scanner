@@ -228,6 +228,12 @@
     <button id="mode-refills">Refills</button>
   </div>
 
+  <div class="mode-toggle" id="line-toggle">
+    <button id="line-sketch" class="active" data-line="Sketch">Sketch</button>
+    <button id="line-ciao" data-line="Ciao">Ciao</button>
+    <button id="line-classic" data-line="Classic">Classic</button>
+  </div>
+
   <section class="card">
     <div id="reader"></div>
     <div class="scan-controls">
@@ -354,8 +360,22 @@ function setMode(m) {
   mode = m;
   $('mode-markers').classList.toggle('active', m === 'markers');
   $('mode-refills').classList.toggle('active', m === 'refills');
+  $('line-toggle').classList.toggle('hidden', m !== 'markers');
   resetResultCard();
 }
+
+// ---------- Marker line toggle (Sketch/Ciao/Classic) ----------
+let markerLine = 'Sketch';
+const KEEP_THRESHOLD = { Sketch: 2, Ciao: 1, Classic: 1 };
+document.querySelectorAll('#line-toggle button').forEach(btn => {
+  btn.onclick = () => {
+    markerLine = btn.dataset.line;
+    document.querySelectorAll('#line-toggle button').forEach(b => b.classList.toggle('active', b === btn));
+    resetResultCard();
+    const q = $('resolve-search');
+    if (q && q.value) q.dispatchEvent(new Event('input'));
+  };
+});
 
 // ---------- Airtable REST helpers ----------
 async function airtableFetch(path, options = {}) {
@@ -386,7 +406,8 @@ async function loadCatalog(tableKey) {
   if (catalog[tableKey]) return catalog[tableKey];
   const table = CONFIG.tables[tableKey];
   const f = table.fields;
-  const fieldParams = [f.colorCode, f.colorName].map(id => `fields[]=${id}`).join('&');
+  const catalogFieldIds = [f.colorCode, f.colorName, f.markerType].filter(Boolean);
+  const fieldParams = catalogFieldIds.map(id => `fields[]=${id}`).join('&');
   let records = [];
   let offset;
   do {
@@ -398,7 +419,8 @@ async function loadCatalog(tableKey) {
   catalog[tableKey] = records.map(r => ({
     id: r.id,
     code: r.fields[f.colorCode] || '',
-    name: r.fields[f.colorName] || ''
+    name: r.fields[f.colorName] || '',
+    line: f.markerType ? (r.fields[f.markerType]?.name || '') : ''
   }));
   return catalog[tableKey];
 }
@@ -520,14 +542,15 @@ async function handleMatch(record) {
 
   const code = record.fields[f.colorCode] || '';
   const name = record.fields[f.colorName] || '';
+  const line = f.markerType ? (record.fields[f.markerType]?.name || markerLine) : '';
   const family = (code.match(/^[A-Z]+/) || [''])[0];
 
   setStatus('ok', 'Matched');
   $('result-code').innerHTML = swatch(family) + `${code} — ${name}`;
-  $('result-sub').textContent = mode === 'markers' ? 'Marker' : 'Refill';
+  $('result-sub').textContent = mode === 'markers' ? `Marker · ${line}` : 'Refill';
   let qtyLine = `Now own: ${newQty}`;
   if (mode === 'markers') {
-    const forSale = Math.max(0, newQty - 2);
+    const forSale = Math.max(0, newQty - (KEEP_THRESHOLD[line] ?? 2));
     qtyLine += forSale > 0 ? ` · ${forSale} for sale` : ' · none surplus yet';
   }
   $('result-qty').textContent = qtyLine;
@@ -552,13 +575,17 @@ $('resolve-search').addEventListener('input', () => {
   const list = $('suggestion-list');
   list.innerHTML = '';
   if (!q || !catalog[mode]) return;
-  const matches = catalog[mode]
-    .filter(c => c.code.toLowerCase().includes(q) || c.name.toLowerCase().includes(q))
-    .slice(0, 15);
+  let pool = catalog[mode].filter(c => c.code.toLowerCase().includes(q) || c.name.toLowerCase().includes(q));
+  if (mode === 'markers') {
+    const onLine = pool.filter(c => c.line === markerLine);
+    pool = onLine.length ? onLine : pool;
+  }
+  const matches = pool.slice(0, 15);
   matches.forEach(m => {
     const div = document.createElement('div');
     div.className = 'suggestion';
-    div.innerHTML = `<span class="code">${m.code}</span><span class="name">${m.name}</span>`;
+    const lineTag = m.line ? ` <span class="name">(${m.line})</span>` : '';
+    div.innerHTML = `<span class="code">${m.code}${lineTag}</span><span class="name">${m.name}</span>`;
     div.onclick = () => linkBarcodeToRecord(m.id);
     list.appendChild(div);
   });
@@ -568,7 +595,8 @@ async function linkBarcodeToRecord(recordId) {
   const table = CONFIG.tables[mode];
   const f = table.fields;
   try {
-    const full = await fetchRecord(mode, recordId, [f.colorCode, f.colorName, f.quantityOwned]);
+    const idFields = [f.colorCode, f.colorName, f.quantityOwned, f.markerType].filter(Boolean);
+    const full = await fetchRecord(mode, recordId, idFields);
     const currentQty = full.fields[f.quantityOwned] || 0;
     const newQty = currentQty + 1;
     const updateFields = {
@@ -580,14 +608,15 @@ async function linkBarcodeToRecord(recordId) {
 
     const code = full.fields[f.colorCode] || '';
     const name = full.fields[f.colorName] || '';
+    const line = f.markerType ? (full.fields[f.markerType]?.name || markerLine) : '';
     const family = (code.match(/^[A-Z]+/) || [''])[0];
 
     setStatus('ok', 'Linked & counted');
     $('result-code').innerHTML = swatch(family) + `${code} — ${name}`;
-    $('result-sub').textContent = 'Barcode saved for next time';
+    $('result-sub').textContent = mode === 'markers' ? `Barcode saved for next time · ${line}` : 'Barcode saved for next time';
     let qtyLine = `Now own: ${newQty}`;
     if (mode === 'markers') {
-      const forSale = Math.max(0, newQty - 2);
+      const forSale = Math.max(0, newQty - (KEEP_THRESHOLD[line] ?? 2));
       qtyLine += forSale > 0 ? ` · ${forSale} for sale` : ' · none surplus yet';
     }
     $('result-qty').textContent = qtyLine;
@@ -621,11 +650,12 @@ $('nc-save').onclick = async () => {
       [f.barcode]: { text: currentBarcode },
       [f.quantityOwned]: 1
     };
+    if (f.markerType) fields[f.markerType] = markerLine;
     const record = await createRecord(mode, fields);
     setStatus('ok', 'New color added');
     const family = (code.match(/^[A-Z]+/) || [''])[0];
     $('result-code').innerHTML = swatch(family) + `${code} — ${name}`;
-    $('result-sub').textContent = 'Added to catalog & counted';
+    $('result-sub').textContent = mode === 'markers' ? `Added to catalog & counted · ${markerLine}` : 'Added to catalog & counted';
     $('result-qty').textContent = 'Now own: 1';
     $('resolve-panel').classList.add('hidden');
     $('scan-next-btn').classList.remove('hidden');
